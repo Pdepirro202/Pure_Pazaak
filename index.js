@@ -65,6 +65,7 @@ function gameButtons(st, seat) {
   rows.push({ type: 1, components: [
     { type: 2, style: 3, label: 'Stand', custom_id: 'pz|stand', disabled: st.turn !== seat },
     { type: 2, style: 2, label: 'End Turn', custom_id: 'pz|end', disabled: st.turn !== seat },
+    { type: 2, style: 4, label: 'Forfeit', custom_id: 'pz|forfeit' },
   ] });
   return rows;
 }
@@ -187,6 +188,13 @@ async function handle(interaction, baseUrl) {
       const seat = seatOf(st, c.user_id);
       if (!seat) return ephemeral('You are not in this game.');
       const r = E.applyHumanAction(st, seat, 'play:' + idx, sign);
+      if (!r.ok) return ephemeral(r.reason);
+      return finish(st, c, baseUrl, 7);
+    }
+    if (kind === 'forfeit') {
+      const seat = seatOf(st, c.user_id);
+      if (!seat) return ephemeral('You are not in this game.');
+      const r = E.forfeit(st, seat);
       if (!r.ok) return ephemeral(r.reason);
       return finish(st, c, baseUrl, 7);
     }
