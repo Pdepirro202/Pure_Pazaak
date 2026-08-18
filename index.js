@@ -36,9 +36,11 @@ function buildEmbed(st) {
     { name: seatName(st, 'p1') + ' - ' + p1.total + (p1.busted ? ' BUST' : (p1.stood ? ' STAND' : '')), value: 'Board: ' + boardStr(p1) + '\nSets: ' + p1.sets + '/' + E.WIN_SETS, inline: true },
     { name: seatName(st, 'p2') + ' - ' + p2.total + (p2.busted ? ' BUST' : (p2.stood ? ' STAND' : '')), value: 'Board: ' + boardStr(p2) + '\nSets: ' + p2.sets + '/' + E.WIN_SETS, inline: true },
   ];
-  const desc = st.phase === 'gameOver'
+  let desc = st.phase === 'gameOver'
     ? '**Match over - ' + seatName(st, st.winner) + ' wins!**'
     : 'Round ' + st.round + ' - Turn: ' + seatName(st, st.turn);
+  if (st.bet > 0) desc += '\nBet: **' + st.bet + '** credits (pot **' + (st.bet * 2) + '**)';
+  if (st.phase === 'gameOver' && st.payoutMsg) desc += '\n' + st.payoutMsg;
   const embed = { title: 'Pazaak', description: desc + '\n\n' + st.log.slice(-6).join('\n'), color: 5793266, fields };
   if (st.boardUrl) embed.image = { url: st.boardUrl };
   return embed;
@@ -119,6 +121,22 @@ async function recordResults(st) {
   const w = st.players[wSeat], l = st.players[lSeat];
   if (w && !w.isComputer && w.id) await store.addResult(w.id, true);
   if (l && !l.isComputer && l.id) await store.addResult(l.id, false);
+
+  // ---- payout the wager ----
+  // Bets were escrowed (deducted) at game start / join. The winner collects the
+  // whole pot; the loser gets nothing back (their escrow stays gone).
+  const bet = st.bet || 0;
+  if (bet > 0) {
+    // pot = both sides' escrow. For PvC the computer matches the human's bet.
+    const pot = bet * 2;
+    if (w && !w.isComputer && w.id) {
+      const bal = await store.addCredits(w.id, pot);
+      st.payoutMsg = (w.name || 'Winner') + ' won ' + pot + ' credits (balance ' + bal + ').';
+    } else {
+      // computer won a PvC bet: nothing to pay out (human's escrow already taken)
+      st.payoutMsg = 'The house keeps the ' + pot + ' credit pot.';
+    }
+  }
 }
 
 async function handle(interaction, baseUrl) {
@@ -135,13 +153,31 @@ async function handle(interaction, baseUrl) {
     }
     if (name === 'stats') {
       const s = await store.getStats(c.user_id);
-      return ephemeral('Your Pazaak record: **' + s.wins + 'W - ' + s.losses + 'L**');
+      const bal = await store.getCredits(c.user_id);
+      return ephemeral('Your Pazaak record: **' + s.wins + 'W - ' + s.losses + 'L**\nCredits: **' + bal + '**');
+    }
+    if (name === 'balance') {
+      const bal = await store.getCredits(c.user_id);
+      return ephemeral('You have **' + bal + '** credits.');
+    }
+    if (name === 'daily') {
+      const r = await store.claimDaily(c.user_id);
+      if (!r.ok) return ephemeral('You already claimed your daily stipend today. Balance: **' + r.credits + '** credits. Come back tomorrow (resets at 00:00 UTC).');
+      return ephemeral('Daily stipend claimed: **+' + r.amount + '** credits! New balance: **' + r.credits + '**');
     }
     if (name === 'pazaak') {
       let mode = 'pvc';
+      let bet = 0;
       const opts = (interaction.data.options) || [];
-      for (let i = 0; i < opts.length; i++) if (opts[i].name === 'opponent') mode = opts[i].value === 'user' ? 'pvp' : 'pvc';
-      return startGame(c, mode, baseUrl, 4);
+      for (let i = 0; i < opts.length; i++) {
+        if (opts[i].name === 'opponent') mode = opts[i].value === 'user' ? 'pvp' : 'pvc';
+        if (opts[i].name === 'bet') bet = Math.max(0, parseInt(opts[i].value, 10) || 0);
+      }
+      if (bet > 0) {
+        const bal = await store.getCredits(c.user_id);
+        if (bal < bet) return ephemeral('You only have **' + bal + '** credits - not enough to bet **' + bet + '**.');
+      }
+      return startGame(c, mode, baseUrl, 4, bet);
     }
   }
 
@@ -177,6 +213,12 @@ async function handle(interaction, baseUrl) {
     if (kind === 'join') {
       if (st.joined) return ephemeral('This game already has two players.');
       if (st.players.p1.id === c.user_id) return ephemeral('You cannot join your own game.');
+      // Joining player must be able to match the wager.
+      if (st.bet > 0) {
+        const bal = await store.getCredits(c.user_id);
+        if (bal < st.bet) return ephemeral('This game has a **' + st.bet + '** credit bet. You only have **' + bal + '**.');
+        await store.addCredits(c.user_id, -st.bet); // escrow the joiner's bet
+      }
       const deck = (await store.getDeck(c.user_id)) || E.defaultDeck();
       st.players.p2.id = c.user_id; st.players.p2.name = c.user_name; st.players.p2.isComputer = false;
       st.players.p2.deck = deck; st.players.p2.hand = st.players.p2.hand; // hand already drawn at start
@@ -213,7 +255,8 @@ async function handle(interaction, baseUrl) {
 function seatOf(st, userId) {
   return st.players.p1.id === userId ? 'p1' : (st.players.p2.id === userId ? 'p2' : null);
 }
-async function startGame(c, mode, baseUrl, responseType) {
+async function startGame(c, mode, baseUrl, responseType, bet) {
+  bet = Math.max(0, bet || 0);
   const seed = Math.floor(Math.random() * 2147483647) + 1;
   const deck1 = (await store.getDeck(c.user_id)) || E.defaultDeck();
   const deck2 = mode === 'pvc' ? E.defaultDeck() : E.defaultDeck();
@@ -221,6 +264,9 @@ async function startGame(c, mode, baseUrl, responseType) {
   st.players.p1.name = c.user_name;
   st.players.p2.name = mode === 'pvc' ? 'Computer' : '';
   st.joined = mode === 'pvc';
+  st.bet = bet;
+  // Escrow the starting player's bet up front.
+  if (bet > 0) await store.addCredits(c.user_id, -bet);
   return finish(st, c, baseUrl, responseType);
 }
 
