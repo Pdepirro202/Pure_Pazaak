@@ -6,6 +6,7 @@
 
 const WIN_SETS = 3, HAND_SIZE = 4, DECK_SIZE = 10, TARGET = 20;
 
+// ---------- card helpers ----------
 function cardToImg(code) {
   if (code[0] === 'p') return 'plus_' + code.slice(1) + '.png';
   if (code[0] === 'm') return 'minus_' + code.slice(1) + '.png';
@@ -30,6 +31,7 @@ function cardMag(code) {
   if (code === 't') return 1;
   return 0;
 }
+// Full catalogue of buildable side cards (for the /deck builder).
 function allCardCodes() {
   const out = [];
   for (let n = 1; n <= 6; n++) out.push('p' + n);
@@ -39,9 +41,11 @@ function allCardCodes() {
   return out;
 }
 function defaultDeck() {
+  // A balanced starter deck of 10.
   return ['p1', 'p2', 'p3', 'm1', 'm2', 'm3', 'd4', 'd5', 'f34', 't'];
 }
 
+// ---------- RNG (serializable) ----------
 function nextRand(s) {
   let a = s.rngState | 0;
   a = (a + 0x6D2B79F5) | 0;
@@ -52,6 +56,7 @@ function nextRand(s) {
 }
 function drawMainCard(s) { return 1 + Math.floor(nextRand(s) * 10); }
 
+// Draw HAND_SIZE distinct indices from a deck of DECK_SIZE (hand kept for the match).
 function drawHand(s, deck) {
   const pool = deck.slice();
   const hand = [];
@@ -63,6 +68,8 @@ function drawHand(s, deck) {
   return hand;
 }
 
+// ---------- placed-card model ----------
+// Each player has placed[]: { val, img, mag, kind } summed for the total.
 function totalOf(p) { let t = 0; for (let i = 0; i < p.placed.length; i++) t += p.placed[i].val; return t; }
 
 function newPlayer(s, id, isComputer, deck) {
@@ -102,6 +109,7 @@ function beginTurn(s) {
   }
 }
 
+// Can the player play any hand card to get back to <=20 this turn?
 function canRescue(p) {
   if (p.playedThisTurn) return false;
   for (let i = 0; i < p.hand.length; i++) {
@@ -111,6 +119,7 @@ function canRescue(p) {
   return false;
 }
 
+// Possible total-deltas for playing a card now (each with a "choice" tag).
 function cardResultDeltas(p, code) {
   if (code[0] === 'p') return [{ delta: +cardMag(code), choice: '' }];
   if (code[0] === 'm') return [{ delta: -cardMag(code), choice: '' }];
@@ -129,6 +138,7 @@ function cardResultDeltas(p, code) {
   return [{ delta: 0, choice: '' }];
 }
 
+// Apply a card. choice is '+'/'-' for dual/tiebreaker, else ''.
 function applyCard(s, w, handIndex, choice) {
   const p = s.players[w];
   if (p.playedThisTurn) return { ok: false, reason: 'You already played a card this turn.' };
@@ -189,7 +199,7 @@ function resolveRound(s) {
   else if (p1.busted && p2.busted) w = null;
   else if (p1.total > p2.total) w = 'p1';
   else if (p2.total > p1.total) w = 'p2';
-  else {
+  else { // tie -> tiebreaker card decides
     if (p1.tiebreaker && !p2.tiebreaker) w = 'p1';
     else if (p2.tiebreaker && !p1.tiebreaker) w = 'p2';
     else w = null;
@@ -224,6 +234,7 @@ function processAuto(s) {
 
 function computerTakeTurn(s) {
   const w = s.turn, p = s.players[w];
+  // If busting, try to rescue to the highest safe total.
   if (p.total > TARGET) bestRescue(s, w);
   else if (p.total >= 18 && p.total < TARGET) bestToTwenty(s, w);
   if (p.total > TARGET) { p.busted = true; glog(s, w + ' busted at ' + p.total + '!'); resolveRound(s); return; }
@@ -267,6 +278,7 @@ function applyHumanAction(s, w, action, choice) {
     const r = applyCard(s, w, idx, choice || '');
     if (!r.ok) return r;
     if (p.total > TARGET && !canRescue(p)) { p.busted = true; glog(s, w + ' busted at ' + p.total + '!'); resolveRound(s); processAuto(s); }
+    else if (p.total === TARGET) { p.stood = true; glog(s, w + ' hit 20 and stands'); switchTurn(s); processAuto(s); }
     return { ok: true };
   }
   if (action === 'stand') { p.stood = true; glog(s, w + ' stands at ' + p.total); switchTurn(s); processAuto(s); return { ok: true }; }
