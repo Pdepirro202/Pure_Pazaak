@@ -168,18 +168,20 @@ function brushedMetal(w, h) {
 function centerText(img, font, cx, y, text) {
   img.print(font, Math.round(cx - Jimp.measureText(font, text) / 2), y, text);
 }
-function printGold(img, font, x, y, text) {
+function printTint(img, font, x, y, text, r, g, b) {
   const w = Jimp.measureText(font, text) + 4;
   const h = Jimp.measureTextHeight(font, text, w) + 4;
   const tmp = new Jimp(w, h, 0x00000000);
   tmp.print(font, 0, 0, text);
   tmp.scan(0, 0, w, h, function (px, py, idx) {
     if (this.bitmap.data[idx + 3] > 20) {
-      this.bitmap.data[idx] = 0xf3; this.bitmap.data[idx + 1] = 0xc5; this.bitmap.data[idx + 2] = 0x3f;
+      this.bitmap.data[idx] = r; this.bitmap.data[idx + 1] = g; this.bitmap.data[idx + 2] = b;
     }
   });
   img.composite(tmp, x, y);
 }
+function printGold(img, font, x, y, text) { printTint(img, font, x, y, text, 0xf3, 0xc5, 0x3f); }
+function printCyan(img, font, x, y, text) { printTint(img, font, x, y, text, 0x6f, 0xe6, 0xf0); }
 
 // ---- main render ----
 async function renderBoard(state) {
@@ -263,7 +265,7 @@ async function renderBoard(state) {
   drawButton(canvas, rightGridX + btnW + 12, btnY, btnW, 34, 'STAND');
   drawButton(canvas, rightGridX, btnY + 44, GRID_W, 34, 'FORFEIT GAME');
 
-  // ---- win / lose / tie result banner (KOTOR-style overlay) ----
+  // ---- win / lose result banner (KOTOR-style overlay) ----
   // In PvC the human is seat p1, so we use the requested "You" wording.
   // In PvP the board image is shared by both players, so we name the winner.
   const pvc = state.mode === 'pvc' || p2.isComputer;
@@ -284,23 +286,63 @@ async function renderBoard(state) {
   return canvas.getBufferAsync(Jimp.MIME_PNG);
 }
 
-// Full-width result bar across the middle of the table.
+// wrap a string to at most `maxW` px per line for the given font
+function wrapLines(font, text, maxW) {
+  const words = text.split(' ');
+  const lines = [];
+  let cur = '';
+  for (const w of words) {
+    const test = cur ? cur + ' ' + w : w;
+    if (Jimp.measureText(font, test) > maxW && cur) { lines.push(cur); cur = w; }
+    else cur = test;
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+// Centered KOTOR-style result dialog: dark navy panel, thick gold rounded
+// border, cyan message text, and a gold-bordered "OK" button.
 function drawResultBanner(canvas, text, win, tie) {
-  const barH = 92;
-  const y = Math.round((HEIGHT - barH) / 2);
-  const face = tie ? 0x5a5f66ff : (win ? 0x1f6d34ff : 0x8a1f22ff);  // grey tie / green win / red loss
-  const edge = tie ? 0xb9bfc6ff : (win ? 0x3fe06aff : 0xff5a5aff);
-  const shadow = 0x000000cc;
-  // drop shadow strip behind the bar
-  fillRect(canvas, 0, y - 6, WIDTH, barH + 12, shadow);
-  // main colored bar with beveled top/bottom edges
-  fillRect(canvas, 0, y, WIDTH, barH, face);
-  fillRect(canvas, 0, y, WIDTH, 3, edge);
-  fillRect(canvas, 0, y + barH - 3, WIDTH, 3, edge);
-  // centered gold headline text
-  const tw = Jimp.measureText(font32, text);
-  const th = Jimp.measureTextHeight(font32, text, tw);
-  printGold(canvas, font32, Math.round((WIDTH - tw) / 2), Math.round(y + (barH - th) / 2), text);
+  const boxW = Math.round(WIDTH * 0.52);
+  const padX = 34, lineH = 34;
+  const lines = wrapLines(font32, text, boxW - padX * 2);
+
+  const btnW = 96, btnH = 40, btnGap = 22;
+  const textBlockH = lines.length * lineH;
+  const boxH = 28 + textBlockH + btnGap + btnH + 28;
+  const x = Math.round((WIDTH - boxW) / 2);
+  const y = Math.round((HEIGHT - boxH) / 2);
+
+  // dim the table behind the dialog
+  fillRect(canvas, 0, 0, WIDTH, HEIGHT, 0x00000066);
+
+  // drop shadow
+  fillRoundRect(canvas, x + 6, y + 8, boxW, boxH, 20, 0x00000099);
+  // navy panel
+  fillRoundRect(canvas, x, y, boxW, boxH, 20, 0x0a1622f2);
+  // thick gold border (double stroke)
+  strokeRoundRect(canvas, x, y, boxW, boxH, 20, 0xf3c53fff, 3);
+  strokeRoundRect(canvas, x + 4, y + 4, boxW - 8, boxH - 8, 16, 0x8a6d1eff, 1);
+
+  // subtle win/loss/tie accent line at the top inside the border
+  const accent = tie ? 0xb9bfc6ff : (win ? 0x3fe06aff : 0xff5a5aff);
+  fillRoundRect(canvas, x + 16, y + 14, boxW - 32, 3, 1, accent);
+
+  // cyan message text, centered line by line
+  let ty = y + 26;
+  for (const ln of lines) {
+    const tw = Jimp.measureText(font32, ln);
+    printCyan(canvas, font32, Math.round(x + (boxW - tw) / 2), ty, ln);
+    ty += lineH;
+  }
+
+  // gold-bordered OK button
+  const bx = Math.round(x + (boxW - btnW) / 2);
+  const by = y + boxH - 28 - btnH;
+  fillRoundRect(canvas, bx, by, btnW, btnH, 10, 0x0a1622ff);
+  strokeRoundRect(canvas, bx, by, btnW, btnH, 10, 0xf3c53fff, 2);
+  const ow = Jimp.measureText(font16, 'OK');
+  printGold(canvas, font16, Math.round(bx + (btnW - ow) / 2), by + 11, 'OK');
 }
 
 async function drawGrid(canvas, player, gx, gy, isTurn, grey) {
