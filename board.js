@@ -276,16 +276,35 @@ async function drawGrid(canvas, player, gx, gy, isTurn, grey) {
     roundSlot(canvas, cx, cy, CARD_W, CARD_H, 10, C.slotBlack);
     const placed = player.placed[i];
     if (placed) {
-      try { canvas.composite(await roundCard(placed.img, CARD_W, CARD_H, grey), cx, cy); }
-      catch (e) { fillRoundRect(canvas, cx + 3, cy + 3, CARD_W - 6, CARD_H - 6, 8, C.cardMiss); }
+      if (grey) {
+        // Opponent's played cards are hidden: draw a blank grey card, no face/text.
+        greyCard(canvas, cx, cy, CARD_W, CARD_H, 10);
+      } else {
+        try { canvas.composite(await roundCard(placed.img, CARD_W, CARD_H), cx, cy); }
+        catch (e) { fillRoundRect(canvas, cx + 3, cy + 3, CARD_W - 6, CARD_H - 6, 8, C.cardMiss); }
+      }
     }
   }
 }
 
+// A featureless grey card face (rounded, subtly beveled) — used to hide opponent cards.
+function greyCard(img, x, y, w, h, r) {
+  fillRoundRect(img, x, y, w, h, r, 0x8a9098ff);
+  // soft inner panel so it reads as a card, not a flat block
+  fillRoundRect(img, x + 6, y + 6, w - 12, h - 12, r - 3, 0x767c84ff);
+  // top-left highlight / bottom-right shadow bevel
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    if (!inRound(i, j, w, h, r)) continue;
+    const topLeft = !inRound(i - 2, j, w, h, r) || !inRound(i, j - 2, w, h, r);
+    const botRight = !inRound(i + 2, j, w, h, r) || !inRound(i, j + 2, w, h, r);
+    if (topLeft) setPx(img, x + i, y + j, 0xb9bfc6ff);
+    else if (botRight) setPx(img, x + i, y + j, 0x4c5158ff);
+  }
+}
+
 // fetch a card and clip it to rounded corners so it seats in the rounded slot
-async function roundCard(filename, w, h, grey) {
+async function roundCard(filename, w, h) {
   const src = (await getCard(filename)).clone().resize(w, h);
-  if (grey) src.greyscale();
   const mask = new Jimp(w, h, 0x00000000);
   fillRoundRect(mask, 0, 0, w, h, 10, 0xffffffff);
   src.mask(mask, 0, 0);
