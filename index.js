@@ -1,10 +1,9 @@
 // Pazaak Discord bot — single-file version (easy to deploy).
-// Discord signs the EXACT raw request bytes; we verify them with express.raw()
-// BEFORE parsing JSON. In-memory game storage (resets on restart/redeploy).
 'use strict';
 
 const express = require('express');
 const nacl = require('discord-interactions'); // provides verifyKey
+const { renderBoard } = require('./board.js'); // composites card images
 
 const PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY;
 const PORT = process.env.PORT || 3000;
@@ -191,7 +190,8 @@ function buildEmbed(st) {
     ? '**Match over - ' + seatName(st, st.winner) + ' wins!**'
     : 'Round ' + st.round + ' - Turn: ' + seatName(st, st.turn);
   const embed = { title: 'Pazaak', description: desc + '\n\n' + st.log.slice(-5).join('\n'), color: 5793266, fields };
-  if (IMAGE_BASE_URL) embed.image = { url: IMAGE_BASE_URL + '/' + TABLE_IMAGE };
+  if (st.boardUrl) embed.image = { url: st.boardUrl };
+  else if (IMAGE_BASE_URL) embed.image = { url: IMAGE_BASE_URL + '/' + TABLE_IMAGE };
   return embed;
 }
 function buttonsFor(st, seat) {
@@ -247,7 +247,7 @@ function parseInteraction(interaction) {
 }
 function ephemeral(content) { return { type: 4, data: { content, flags: 64 } }; }
 
-function handleGame(interaction) {
+function handleGame(interaction, baseUrl) {
   const hi = parseInteraction(interaction);
   const responseType = hi.interactionType === 2 ? 4 : 7;
   let st = games.get(hi.channel_id) || null;
@@ -273,6 +273,8 @@ function handleGame(interaction) {
     }
   }
 
+  st.rev = (st.rev || 0) + 1; // bump so Discord re-fetches the board image
+  if (baseUrl) st.boardUrl = baseUrl + '/board/' + encodeURIComponent(hi.channel_id) + '.png?v=' + st.rev;
   games.set(hi.channel_id, st);
   const components = st.joined ? buttonsFor(st, st.turn) : joinButtons();
   const embed = buildEmbed(st);
@@ -284,6 +286,20 @@ function handleGame(interaction) {
 const app = express();
 
 app.get('/', function (req, res) { res.status(200).send('Pazaak bot OK'); });
+
+app.get('/board/:id.png', async function (req, res) {
+  const st = games.get(req.params.id);
+  if (!st) return res.status(404).send('no game');
+  try {
+    const buf = await renderBoard(st);
+    res.set('Content-Type', 'image/png');
+    res.set('Cache-Control', 'public, max-age=60');
+    return res.status(200).send(buf);
+  } catch (e) {
+    console.error('renderBoard error:', e);
+    return res.status(500).send('render error');
+  }
+});
 
 app.post('/interactions', express.raw({ type: '*/*' }), async function (req, res) {
   const signature = req.get('X-Signature-Ed25519');
@@ -301,8 +317,9 @@ app.post('/interactions', express.raw({ type: '*/*' }), async function (req, res
   try { interaction = JSON.parse(rawBody.toString('utf8')); } catch (e) { return res.status(400).send('invalid body'); }
 
   if (interaction.type === 1) return res.status(200).json({ type: 1 });
+  const baseUrl = 'https://' + req.get('host');
   if (interaction.type === 2 || interaction.type === 3) {
-    try { return res.status(200).json(handleGame(interaction)); }
+    try { return res.status(200).json(handleGame(interaction, baseUrl)); }
     catch (e) { console.error('handleGame error:', e); return res.status(200).json(ephemeral('Something went wrong.')); }
   }
   return res.status(200).json({ type: 1 });
