@@ -348,11 +348,7 @@ function drawResultBanner(canvas, text, win, tie) {
   strokeRoundRect(canvas, x, y, boxW, boxH, 20, 0xf3c53fff, 3);
   strokeRoundRect(canvas, x + 4, y + 4, boxW - 8, boxH - 8, 16, 0x8a6d1eff, 1);
 
-  // subtle win/loss/tie accent line at the top inside the border
-  const accent = tie ? 0xb9bfc6ff : (win ? 0x3fe06aff : 0xff5a5aff);
-  fillRoundRect(canvas, x + 16, y + 14, boxW - 32, 3, 1, accent);
-
-  // cyan message text, centered line by line
+   // cyan message text, centered line by line
   let ty = y + 26;
   for (const ln of lines) {
     const tw = Jimp.measureText(font32, ln);
