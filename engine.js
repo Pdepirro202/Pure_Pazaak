@@ -286,8 +286,21 @@ function applyHumanAction(s, w, action, choice) {
   return { ok: false, reason: 'Unknown action.' };
 }
 
+// Forfeit: the forfeiting player loses the whole match; the opponent wins immediately.
+function forfeit(s, w) {
+  if (s.phase === 'gameOver') return { ok: false, reason: 'The match is already over.' };
+  const p = s.players[w];
+  if (!p || p.isComputer) return { ok: false, reason: 'You are not in this game.' };
+  const o = other(w);
+  s.phase = 'gameOver';
+  s.winner = o;
+  glog(s, (p.name || w) + ' forfeited the match.');
+  glog(s, 'Match over - ' + (s.players[o].name || o) + ' wins!');
+  return { ok: true };
+}
+
 module.exports = {
   WIN_SETS, HAND_SIZE, DECK_SIZE, TARGET,
   cardToImg, cardLabel, needsSign, cardMag, allCardCodes, defaultDeck,
-  newGame, applyHumanAction, applyCard, totalOf, canRescue,
+  newGame, applyHumanAction, applyCard, totalOf, canRescue, forfeit,
 };
