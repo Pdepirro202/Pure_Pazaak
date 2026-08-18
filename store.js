@@ -7,6 +7,7 @@ let pool = null;
 
 const STARTING_CREDITS = 500;
 const DAILY_AMOUNT = 50;
+const CREDIT_CAP = 1000000; // maximum credits any wallet can hold
 
 const mem = { games: new Map(), decks: new Map(), stats: new Map(), wallets: new Map() };
 
@@ -118,17 +119,17 @@ async function getCredits(userId) {
   return w.credits;
 }
 
-// Add (or subtract, if negative) credits. Never lets the balance go below 0.
+// Add (or subtract, if negative) credits. Clamped to [0, CREDIT_CAP].
 async function addCredits(userId, delta) {
   if (!useDb) {
     const w = await getWallet(userId);
-    w.credits = Math.max(0, w.credits + delta);
+    w.credits = Math.min(CREDIT_CAP, Math.max(0, w.credits + delta));
     mem.wallets.set(userId, w);
     return w.credits;
   }
   await getWallet(userId); // ensure the row exists
   const r = await pool.query(
-    `UPDATE wallets SET credits = GREATEST(0, credits + $2), updated_at=now()
+    `UPDATE wallets SET credits = LEAST(${CREDIT_CAP}, GREATEST(0, credits + $2)), updated_at=now()
      WHERE user_id=$1 RETURNING credits`,
     [userId, delta]
   );
@@ -141,13 +142,13 @@ async function claimDaily(userId) {
   if (!useDb) {
     const w = await getWallet(userId);
     if (w.last_daily === today) return { ok: false, credits: w.credits, already: true };
-    w.credits += DAILY_AMOUNT; w.last_daily = today;
+    w.credits = Math.min(CREDIT_CAP, w.credits + DAILY_AMOUNT); w.last_daily = today;
     mem.wallets.set(userId, w);
     return { ok: true, amount: DAILY_AMOUNT, credits: w.credits };
   }
   await getWallet(userId);
   const r = await pool.query(
-    `UPDATE wallets SET credits = credits + $2, last_daily = $3::date, updated_at=now()
+    `UPDATE wallets SET credits = LEAST(${CREDIT_CAP}, credits + $2), last_daily = $3::date, updated_at=now()
      WHERE user_id=$1 AND (last_daily IS DISTINCT FROM $3::date)
      RETURNING credits`,
     [userId, DAILY_AMOUNT, today]
@@ -162,5 +163,5 @@ async function claimDaily(userId) {
 module.exports = {
   init, getGame, saveGame, getDeck, saveDeck, getStats, addResult, useDb,
   getWallet, getCredits, addCredits, claimDaily,
-  STARTING_CREDITS, DAILY_AMOUNT,
+  STARTING_CREDITS, DAILY_AMOUNT, CREDIT_CAP,
 };
