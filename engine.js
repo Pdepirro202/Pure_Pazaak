@@ -85,7 +85,7 @@ function other(w) { return w === 'p1' ? 'p2' : 'p1'; }
 function glog(s, m) { s.log.push(m); if (s.log.length > 10) s.log.shift(); }
 
 function newGame(mode, p1id, p2id, seed, deck1, deck2) {
-  const s = { mode, rngState: (seed >>> 0) || 1, turn: 'p1', round: 1, phase: 'playing', log: [], winner: null, players: {} };
+  const s = { mode, difficulty: 'easy', rngState: (seed >>> 0) || 1, turn: 'p1', round: 1, phase: 'playing', log: [], winner: null, players: {} };
   s.players.p1 = newPlayer(s, p1id, false, deck1);
   s.players.p2 = newPlayer(s, p2id, mode === 'pvc', deck2);
   s.players.p1.hand = drawHand(s, s.players.p1.deck);
@@ -232,13 +232,29 @@ function processAuto(s) {
   }
 }
 
+// Skill = probability the computer makes the optimal play. Lower = easier.
+// 'easy' (default) makes the computer beatable: it often fumbles rescues,
+// misses the card that would reach 20, and hits when it should stand.
+const SKILL = { easy: 0.5, normal: 0.75, hard: 1 };
+function skillOf(s) { return SKILL[s.difficulty] != null ? SKILL[s.difficulty] : SKILL.easy; }
+
 function computerTakeTurn(s) {
   const w = s.turn, p = s.players[w];
-  // If busting, try to rescue to the highest safe total.
-  if (p.total > TARGET) bestRescue(s, w);
-  else if (p.total >= 18 && p.total < TARGET) bestToTwenty(s, w);
+  const skill = skillOf(s);
+  // If busting, try to rescue to the highest safe total — but easier AI often fumbles it.
+  if (p.total > TARGET) {
+    if (nextRand(s) < skill) bestRescue(s, w);
+  } else if (p.total >= 18 && p.total < TARGET) {
+    // Reach 20 with a side card — easier AI often doesn't bother.
+    if (nextRand(s) < skill) bestToTwenty(s, w);
+  }
   if (p.total > TARGET) { p.busted = true; glog(s, w + ' busted at ' + p.total + '!'); resolveRound(s); return; }
-  if (p.total >= 18) { p.stood = true; glog(s, w + ' stands at ' + p.total); switchTurn(s); return; }
+  // Standing discipline. A skilled AI stands at 18+; an easier AI keeps hitting
+  // into the danger zone (busts more) and sometimes stands too low.
+  const standAt = skill >= 1 ? 18 : (skill >= 0.75 ? 19 : 20);
+  if (p.total >= standAt) { p.stood = true; glog(s, w + ' stands at ' + p.total); switchTurn(s); return; }
+  // Below the stand line: usually hit (end turn), but easier AI may bail early.
+  if (p.total >= 17 && nextRand(s) > skill) { p.stood = true; glog(s, w + ' stands at ' + p.total); switchTurn(s); return; }
   glog(s, w + ' ends turn at ' + p.total); switchTurn(s);
 }
 function bestRescue(s, w) {
