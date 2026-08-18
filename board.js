@@ -263,31 +263,33 @@ async function renderBoard(state) {
   drawButton(canvas, rightGridX + btnW + 12, btnY, btnW, 34, 'STAND');
   drawButton(canvas, rightGridX, btnY + 44, GRID_W, 34, 'FORFEIT GAME');
 
-  // ---- win / lose result banner (KOTOR-style overlay) ----
+  // ---- win / lose / tie result banner (KOTOR-style overlay) ----
   // In PvC the human is seat p1, so we use the requested "You" wording.
   // In PvP the board image is shared by both players, so we name the winner.
   const pvc = state.mode === 'pvc' || p2.isComputer;
-  let banner = null, win = false;
+  let banner = null, win = false, tie = false;
   if (state.phase === 'gameOver') {
     win = state.winner === 'p1';
     if (pvc) banner = win ? 'You have defeated your opponent.' : 'You have been defeated.';
     else banner = (state.winner === 'p1' ? p1name : p2name) + ' wins the match.';
+  } else if (state.setBanner === 'tie') {
+    tie = true; banner = 'Tie \u2013 the set is a draw.';
   } else if (state.setBanner) {
     win = state.setBanner === 'p1';
     if (pvc) banner = win ? 'You have won the set.' : 'Your opponent wins the set.';
     else banner = (state.setBanner === 'p1' ? p1name : p2name) + ' wins the set.';
   }
-  if (banner) drawResultBanner(canvas, banner, win);
+  if (banner) drawResultBanner(canvas, banner, win, tie);
 
   return canvas.getBufferAsync(Jimp.MIME_PNG);
 }
 
 // Full-width result bar across the middle of the table.
-function drawResultBanner(canvas, text, win) {
+function drawResultBanner(canvas, text, win, tie) {
   const barH = 92;
   const y = Math.round((HEIGHT - barH) / 2);
-  const face = win ? 0x1f6d34ff : 0x8a1f22ff;      // green win / red loss
-  const edge = win ? 0x3fe06aff : 0xff5a5aff;
+  const face = tie ? 0x5a5f66ff : (win ? 0x1f6d34ff : 0x8a1f22ff);  // grey tie / green win / red loss
+  const edge = tie ? 0xb9bfc6ff : (win ? 0x3fe06aff : 0xff5a5aff);
   const shadow = 0x000000cc;
   // drop shadow strip behind the bar
   fillRect(canvas, 0, y - 6, WIDTH, barH + 12, shadow);
