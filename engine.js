@@ -206,8 +206,12 @@ function resolveRound(s) {
   }
   if (w) { s.players[w].sets += 1; glog(s, 'Round ' + s.round + ' to ' + (w === 'p1' ? p1.name || 'P1' : p2.name || 'P2') + ' (' + p1.total + ' vs ' + p2.total + '). Sets ' + p1.sets + '-' + p2.sets); }
   else { glog(s, 'Round ' + s.round + ' tied (' + p1.total + ' vs ' + p2.total + ').'); }
+  // Transient banner: which seat just won this set (null on a tie). Cleared on
+  // the human's next action so it flashes on the board once, KOTOR-style.
+  s.setBanner = w || null;
   if (p1.sets >= WIN_SETS || p2.sets >= WIN_SETS) {
     s.phase = 'gameOver'; s.winner = p1.sets >= WIN_SETS ? 'p1' : 'p2';
+    s.setBanner = null; // the match banner takes over
     glog(s, 'Match over - ' + (s.players[s.winner].name || s.winner) + ' wins!'); return;
   }
   s.phase = 'playing'; s.round += 1;
@@ -289,6 +293,7 @@ function applyHumanAction(s, w, action, choice) {
   if (s.turn !== w) return { ok: false, reason: 'It is not your turn.' };
   const p = s.players[w];
   if (p.isComputer) return { ok: false, reason: 'That seat is the computer.' };
+  s.setBanner = null; // human acted in the new set: clear the previous set banner
   if (action.indexOf('play:') === 0) {
     const idx = parseInt(action.slice(5), 10);
     const r = applyCard(s, w, idx, choice || '');
