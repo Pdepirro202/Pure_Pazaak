@@ -9,6 +9,11 @@ const { renderBoard } = require('./board.js');
 
 const PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY;
 const PORT = process.env.PORT || 3000;
+// Discord user IDs allowed to use /give (the banker). Comma-separate BANKER_IDS
+// to add more; the hard-coded default is the bot owner.
+const BANKER_IDS = (process.env.BANKER_IDS || '941838304247173180')
+  .split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+function isBanker(userId) { return BANKER_IDS.indexOf(userId) !== -1; }
 const IMAGE_BASE_URL = process.env.IMAGE_BASE_URL || 'https://raw.githubusercontent.com/Pdepirro202/Pazaak/main';
 
 if (!PUBLIC_KEY) {
@@ -159,6 +164,20 @@ async function handle(interaction, baseUrl) {
     if (name === 'balance') {
       const bal = await store.getCredits(c.user_id);
       return ephemeral('You have **' + bal + '** credits.');
+    }
+    if (name === 'give') {
+      if (!isBanker(c.user_id)) return ephemeral('You do not have banker access.');
+      let targetId = '', amount = 0;
+      const opts = (interaction.data.options) || [];
+      for (let i = 0; i < opts.length; i++) {
+        if (opts[i].name === 'user') targetId = opts[i].value;
+        if (opts[i].name === 'amount') amount = parseInt(opts[i].value, 10) || 0;
+      }
+      if (!targetId) return ephemeral('Pick a user to give credits to.');
+      if (!amount) return ephemeral('Enter a non-zero amount (negative to remove credits).');
+      const bal = await store.addCredits(targetId, amount);
+      const verb = amount >= 0 ? 'Gave **+' + amount + '**' : 'Removed **' + Math.abs(amount) + '**';
+      return ephemeral(verb + ' credits ' + (amount >= 0 ? 'to' : 'from') + ' <@' + targetId + '>. New balance: **' + bal + '** (cap ' + store.CREDIT_CAP + ').');
     }
     if (name === 'daily') {
       const r = await store.claimDaily(c.user_id);
