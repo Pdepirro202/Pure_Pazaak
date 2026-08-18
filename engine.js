@@ -206,7 +206,7 @@ function resolveRound(s) {
   }
   if (w) { s.players[w].sets += 1; glog(s, 'Round ' + s.round + ' to ' + (w === 'p1' ? p1.name || 'P1' : p2.name || 'P2') + ' (' + p1.total + ' vs ' + p2.total + '). Sets ' + p1.sets + '-' + p2.sets); }
   else { glog(s, 'Round ' + s.round + ' tied (' + p1.total + ' vs ' + p2.total + ').'); }
-  // Transient banner: which seat just won this set ('tie' on a draw). Cleared on
+  // Transient banner: which seat just won this set (null on a tie). Cleared on
   // the human's next action so it flashes on the board once, KOTOR-style.
   s.setBanner = w || 'tie';
   if (p1.sets >= WIN_SETS || p2.sets >= WIN_SETS) {
@@ -214,8 +214,23 @@ function resolveRound(s) {
     s.setBanner = null; // the match banner takes over
     glog(s, 'Match over - ' + (s.players[s.winner].name || s.winner) + ' wins!'); return;
   }
-  s.phase = 'playing'; s.round += 1;
-  resetRound(s, w ? other(w) : 'p1');
+  // Pause on the finished set so the win/loss banner is shown OVER the set that
+  // just ended (its cards/totals stay on the board). The next set is only dealt
+  // when a player presses Continue.
+  s.phase = 'setOver';
+  s.nextStarter = w ? other(w) : 'p1';
+  s.nextRound = s.round + 1;
+}
+
+// Deal the next set after a set-over pause.
+function continueSet(s) {
+  if (s.phase !== 'setOver') return { ok: false, reason: 'There is no finished set to continue.' };
+  s.setBanner = null;
+  s.phase = 'playing';
+  s.round = s.nextRound || (s.round + 1);
+  resetRound(s, s.nextStarter || 'p1');
+  processAuto(s);
+  return { ok: true };
 }
 
 function resetRound(s, starter) {
@@ -323,5 +338,5 @@ function forfeit(s, w) {
 module.exports = {
   WIN_SETS, HAND_SIZE, DECK_SIZE, TARGET,
   cardToImg, cardLabel, needsSign, cardMag, allCardCodes, defaultDeck,
-  newGame, applyHumanAction, applyCard, totalOf, canRescue, forfeit,
+  newGame, applyHumanAction, applyCard, totalOf, canRescue, forfeit, continueSet,
 };
