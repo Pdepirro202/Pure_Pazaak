@@ -71,6 +71,30 @@ function fillRect(img, x, y, w, h, color) {
   x |= 0; y |= 0; w |= 0; h |= 0;
   for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) setPx(img, x + i, y + j, color);
 }
+// alpha-blend a single pixel of `color` (0xRRGGBBAA) over what's already there
+function blendPx(img, x, y, color) {
+  x |= 0; y |= 0;
+  if (x < 0 || y < 0 || x >= img.bitmap.width || y >= img.bitmap.height) return;
+  const a = (color & 0xff) / 255;
+  if (a <= 0) return;
+  if (a >= 1) { img.setPixelColor(color, x, y); return; }
+  const idx = (img.bitmap.width * y + x) << 2;
+  const d = img.bitmap.data;
+  const sr = (color >>> 24) & 0xff, sg = (color >>> 16) & 0xff, sb = (color >>> 8) & 0xff;
+  d[idx]     = Math.round(sr * a + d[idx] * (1 - a));
+  d[idx + 1] = Math.round(sg * a + d[idx + 1] * (1 - a));
+  d[idx + 2] = Math.round(sb * a + d[idx + 2] * (1 - a));
+  d[idx + 3] = 255;
+}
+// alpha-blend a filled rect over the canvas
+function blendRect(img, x, y, w, h, color) {
+  x |= 0; y |= 0; w |= 0; h |= 0;
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) blendPx(img, x + i, y + j, color);
+}
+// alpha-blend a filled rounded rect over the canvas
+function blendRoundRect(img, x, y, w, h, r, color) {
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) if (inRound(i, j, w, h, r)) blendPx(img, x + i, y + j, color);
+}
 // is (x,y) inside a rounded rect of size w,h with corner radius r (local coords)
 function inRound(i, j, w, h, r) {
   if (i < 0 || j < 0 || i >= w || j >= h) return false;
@@ -275,7 +299,7 @@ async function renderBoard(state) {
     if (pvc) banner = win ? 'You have defeated your opponent.' : 'You have been defeated.';
     else banner = (state.winner === 'p1' ? p1name : p2name) + ' wins the match.';
   } else if (state.setBanner === 'tie') {
-    tie = true; banner = 'Tie \u2013 the set is a draw.';
+    tie = true; banner = 'The set is a draw.';
   } else if (state.setBanner) {
     win = state.setBanner === 'p1';
     if (pvc) banner = win ? 'You have won the set.' : 'Your opponent wins the set.';
@@ -313,13 +337,13 @@ function drawResultBanner(canvas, text, win, tie) {
   const x = Math.round((WIDTH - boxW) / 2);
   const y = Math.round((HEIGHT - boxH) / 2);
 
-  // dim the table behind the dialog
-  fillRect(canvas, 0, 0, WIDTH, HEIGHT, 0x00000066);
+  // lightly dim the table behind the dialog so the board stays visible
+  blendRect(canvas, 0, 0, WIDTH, HEIGHT, 0x00000033);
 
   // drop shadow
-  fillRoundRect(canvas, x + 6, y + 8, boxW, boxH, 20, 0x00000099);
-  // navy panel
-  fillRoundRect(canvas, x, y, boxW, boxH, 20, 0x0a1622f2);
+  blendRoundRect(canvas, x + 6, y + 8, boxW, boxH, 20, 0x00000066);
+  // navy panel (translucent so the board shows through)
+  blendRoundRect(canvas, x, y, boxW, boxH, 20, 0x0a1622cc);
   // thick gold border (double stroke)
   strokeRoundRect(canvas, x, y, boxW, boxH, 20, 0xf3c53fff, 3);
   strokeRoundRect(canvas, x + 4, y + 4, boxW - 8, boxH - 8, 16, 0x8a6d1eff, 1);
