@@ -246,8 +246,8 @@ async function renderBoard(state) {
   }
 
   // ---- card grids ----
-  await drawGrid(canvas, p1, leftGridX, gridTop, playing && state.turn === 'p1');
-  await drawGrid(canvas, p2, rightGridX, gridTop, playing && state.turn === 'p2');
+  await drawGrid(canvas, p1, leftGridX, gridTop, playing && state.turn === 'p1', false);
+  await drawGrid(canvas, p2, rightGridX, gridTop, playing && state.turn === 'p2', true);
 
   // ---- hand rows ----
   const handTop = gridTop + GRID_H + 26;
@@ -266,7 +266,7 @@ async function renderBoard(state) {
   return canvas.getBufferAsync(Jimp.MIME_PNG);
 }
 
-async function drawGrid(canvas, player, gx, gy, isTurn) {
+async function drawGrid(canvas, player, gx, gy, isTurn, grey) {
   roundPanel(canvas, gx - 12, gy - 12, GRID_W + 24, GRID_H + 24, 16, C.panelFace);
   if (isTurn) strokeRoundRect(canvas, gx - 12, gy - 12, GRID_W + 24, GRID_H + 24, 16, C.gold, 3);
   for (let i = 0; i < 9; i++) {
@@ -276,15 +276,16 @@ async function drawGrid(canvas, player, gx, gy, isTurn) {
     roundSlot(canvas, cx, cy, CARD_W, CARD_H, 10, C.slotBlack);
     const placed = player.placed[i];
     if (placed) {
-      try { canvas.composite(await roundCard(placed.img, CARD_W, CARD_H), cx, cy); }
+      try { canvas.composite(await roundCard(placed.img, CARD_W, CARD_H, grey), cx, cy); }
       catch (e) { fillRoundRect(canvas, cx + 3, cy + 3, CARD_W - 6, CARD_H - 6, 8, C.cardMiss); }
     }
   }
 }
 
 // fetch a card and clip it to rounded corners so it seats in the rounded slot
-async function roundCard(filename, w, h) {
+async function roundCard(filename, w, h, grey) {
   const src = (await getCard(filename)).clone().resize(w, h);
+  if (grey) src.greyscale();
   const mask = new Jimp(w, h, 0x00000000);
   fillRoundRect(mask, 0, 0, w, h, 10, 0xffffffff);
   src.mask(mask, 0, 0);
