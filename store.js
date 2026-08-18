@@ -5,7 +5,12 @@
 const useDb = !!process.env.DATABASE_URL;
 let pool = null;
 
-const mem = { games: new Map(), decks: new Map(), stats: new Map() };
+const STARTING_CREDITS = 500;
+const DAILY_AMOUNT = 50;
+
+const mem = { games: new Map(), decks: new Map(), stats: new Map(), wallets: new Map() };
+
+function todayStr() { return new Date().toISOString().slice(0, 10); } // UTC calendar day
 
 async function init() {
   if (!useDb) { console.log('Store: in-memory mode (set DATABASE_URL for persistence).'); return; }
@@ -28,6 +33,12 @@ async function init() {
     user_id TEXT PRIMARY KEY,
     wins INT NOT NULL DEFAULT 0,
     losses INT NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ DEFAULT now()
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS wallets (
+    user_id TEXT PRIMARY KEY,
+    credits INT NOT NULL DEFAULT ${STARTING_CREDITS},
+    last_daily DATE,
     updated_at TIMESTAMPTZ DEFAULT now()
   )`);
   console.log('Store: Postgres mode ready.');
@@ -84,4 +95,72 @@ async function addResult(userId, won) {
   );
 }
 
-module.exports = { init, getGame, saveGame, getDeck, saveDeck, getStats, addResult, useDb };
+// ---- wallets / credits ----
+// Every user starts with STARTING_CREDITS the first time we see their wallet.
+async function getWallet(userId) {
+  if (!useDb) {
+    let w = mem.wallets.get(userId);
+    if (!w) { w = { credits: STARTING_CREDITS, last_daily: null }; mem.wallets.set(userId, w); }
+    return { credits: w.credits, last_daily: w.last_daily };
+  }
+  const r = await pool.query('SELECT credits, last_daily FROM wallets WHERE user_id=$1', [userId]);
+  if (r.rows.length) {
+    const row = r.rows[0];
+    const ld = row.last_daily ? new Date(row.last_daily).toISOString().slice(0, 10) : null;
+    return { credits: row.credits, last_daily: ld };
+  }
+  await pool.query('INSERT INTO wallets(user_id, credits) VALUES($1,$2) ON CONFLICT(user_id) DO NOTHING', [userId, STARTING_CREDITS]);
+  return { credits: STARTING_CREDITS, last_daily: null };
+}
+
+async function getCredits(userId) {
+  const w = await getWallet(userId);
+  return w.credits;
+}
+
+// Add (or subtract, if negative) credits. Never lets the balance go below 0.
+async function addCredits(userId, delta) {
+  if (!useDb) {
+    const w = await getWallet(userId);
+    w.credits = Math.max(0, w.credits + delta);
+    mem.wallets.set(userId, w);
+    return w.credits;
+  }
+  await getWallet(userId); // ensure the row exists
+  const r = await pool.query(
+    `UPDATE wallets SET credits = GREATEST(0, credits + $2), updated_at=now()
+     WHERE user_id=$1 RETURNING credits`,
+    [userId, delta]
+  );
+  return r.rows[0].credits;
+}
+
+// Claim the once-per-day stipend. Returns { ok, amount, credits, nextIn }.
+async function claimDaily(userId) {
+  const today = todayStr();
+  if (!useDb) {
+    const w = await getWallet(userId);
+    if (w.last_daily === today) return { ok: false, credits: w.credits, already: true };
+    w.credits += DAILY_AMOUNT; w.last_daily = today;
+    mem.wallets.set(userId, w);
+    return { ok: true, amount: DAILY_AMOUNT, credits: w.credits };
+  }
+  await getWallet(userId);
+  const r = await pool.query(
+    `UPDATE wallets SET credits = credits + $2, last_daily = $3::date, updated_at=now()
+     WHERE user_id=$1 AND (last_daily IS DISTINCT FROM $3::date)
+     RETURNING credits`,
+    [userId, DAILY_AMOUNT, today]
+  );
+  if (!r.rows.length) {
+    const c = await getCredits(userId);
+    return { ok: false, credits: c, already: true };
+  }
+  return { ok: true, amount: DAILY_AMOUNT, credits: r.rows[0].credits };
+}
+
+module.exports = {
+  init, getGame, saveGame, getDeck, saveDeck, getStats, addResult, useDb,
+  getWallet, getCredits, addCredits, claimDaily,
+  STARTING_CREDITS, DAILY_AMOUNT,
+};
