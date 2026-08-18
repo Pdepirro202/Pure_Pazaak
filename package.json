@@ -1,0 +1,12 @@
+{
+  "name": "pazaak-discord-bot",
+  "version": "1.0.0",
+  "description": "Pazaak Discord bot (single-file, Railway-ready).",
+  "main": "index.js",
+  "engines": { "node": ">=18" },
+  "scripts": { "start": "node index.js" },
+  "dependencies": {
+    "discord-interactions": "^4.1.0",
+    "express": "^4.19.2"
+  }
+}
