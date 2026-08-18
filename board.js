@@ -247,7 +247,7 @@ async function renderBoard(state) {
 
   // ---- card grids ----
   await drawGrid(canvas, p1, leftGridX, gridTop, playing && state.turn === 'p1', false);
-  await drawGrid(canvas, p2, rightGridX, gridTop, playing && state.turn === 'p2', true);
+  await drawGrid(canvas, p2, rightGridX, gridTop, playing && state.turn === 'p2', false);
 
   // ---- hand rows ----
   const handTop = gridTop + GRID_H + 26;
@@ -277,7 +277,7 @@ async function drawGrid(canvas, player, gx, gy, isTurn, grey) {
     const placed = player.placed[i];
     if (placed) {
       if (grey) {
-        // Opponent's played cards are hidden: draw a blank grey card, no face/text.
+        // (unused now) blank grey card, no face/text.
         greyCard(canvas, cx, cy, CARD_W, CARD_H, 10);
       } else {
         try { canvas.composite(await roundCard(placed.img, CARD_W, CARD_H), cx, cy); }
@@ -287,7 +287,7 @@ async function drawGrid(canvas, player, gx, gy, isTurn, grey) {
   }
 }
 
-// A featureless grey card face (rounded, subtly beveled) — used to hide opponent cards.
+// A featureless grey card face (rounded, subtly beveled) — used to hide the opponent's side deck.
 function greyCard(img, x, y, w, h, r) {
   fillRoundRect(img, x, y, w, h, r, 0x8a9098ff);
   // soft inner panel so it reads as a card, not a flat block
@@ -326,10 +326,14 @@ async function drawHand(canvas, player, x, y, faceUp) {
     const cx = x + i * (hw + hgap);
     roundSlot(canvas, cx, y, hw, hh, 8, C.slotBlack);
     if (i < cards.length) {
-      try {
-        const src = faceUp ? cardImg(cards[i]) : 'D.png';
-        canvas.composite(await roundCard(src, hw, hh), cx, y);
-      } catch (e) { fillRoundRect(canvas, cx + 3, y + 3, hw - 6, hh - 6, 6, C.cardMiss); }
+      if (!faceUp) {
+        // Opponent's side deck is concealed: blank grey card, no face/text.
+        greyCard(canvas, cx, y, hw, hh, 8);
+      } else {
+        try {
+          canvas.composite(await roundCard(cardImg(cards[i]), hw, hh), cx, y);
+        } catch (e) { fillRoundRect(canvas, cx + 3, y + 3, hw - 6, hh - 6, 6, C.cardMiss); }
+      }
     }
   }
 }
