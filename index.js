@@ -84,6 +84,7 @@ function deckSummary(cards) {
   cards.forEach(function (c) { counts[c] = (counts[c] || 0) + 1; });
   return Object.keys(counts).map(function (c) { return E.cardLabel(c) + (counts[c] > 1 ? ' x' + counts[c] : ''); }).join(', ');
 }
+// Deck builder shows card categories as select menus (max 10 cards).
 function deckBuilderView(cards) {
   const content = '**Your Pazaak side deck** (' + cards.length + '/' + E.DECK_SIZE + ')\n' +
     (cards.length ? deckSummary(cards) : '_empty_') +
@@ -108,9 +109,11 @@ function ctx(interaction) {
   return { channel_id, user_id: user.id || '', user_name: user.global_name || user.username || 'Player', type: interaction.type };
 }
 
+// temp deck-in-progress per user (ephemeral, fine to keep in memory)
 const deckDraft = new Map();
 
 async function recordResults(st) {
+  // record win/loss for human players only
   const wSeat = st.winner, lSeat = wSeat === 'p1' ? 'p2' : 'p1';
   const w = st.players[wSeat], l = st.players[lSeat];
   if (w && !w.isComputer && w.id) await store.addResult(w.id, true);
@@ -120,6 +123,7 @@ async function recordResults(st) {
 async function handle(interaction, baseUrl) {
   const c = ctx(interaction);
 
+  // ---- slash commands ----
   if (interaction.type === 2) {
     const name = interaction.data && interaction.data.name;
     if (name === 'deck') {
@@ -140,11 +144,13 @@ async function handle(interaction, baseUrl) {
     }
   }
 
+  // ---- component (button / select) ----
   if (interaction.type === 3) {
     const cid = (interaction.data && interaction.data.custom_id) || '';
     const parts = cid.split('|');
     const kind = parts[1];
 
+    // deck builder actions
     if (kind === 'deckadd') {
       const draft = deckDraft.get(c.user_id) || [];
       const val = (interaction.data.values && interaction.data.values[0]) || '';
@@ -163,6 +169,7 @@ async function handle(interaction, baseUrl) {
 
     if (kind === 'new') return startGame(c, parts[2] === 'pvp' ? 'pvp' : 'pvc', baseUrl, 7);
 
+    // game actions need a live game
     const st = await store.getGame(c.channel_id);
     if (!st) return ephemeral('No active game here. Start one with /pazaak.');
 
@@ -171,7 +178,7 @@ async function handle(interaction, baseUrl) {
       if (st.players.p1.id === c.user_id) return ephemeral('You cannot join your own game.');
       const deck = (await store.getDeck(c.user_id)) || E.defaultDeck();
       st.players.p2.id = c.user_id; st.players.p2.name = c.user_name; st.players.p2.isComputer = false;
-      st.players.p2.deck = deck; st.players.p2.hand = st.players.p2.hand;
+      st.players.p2.deck = deck; st.players.p2.hand = st.players.p2.hand; // hand already drawn at start
       st.joined = true;
       return finish(st, c, baseUrl, 7);
     }
@@ -212,7 +219,10 @@ async function startGame(c, mode, baseUrl, responseType) {
 async function finish(st, c, baseUrl, responseType) {
   if (st.phase === 'gameOver' && !st.recorded) { st.recorded = true; await recordResults(st); }
   st.rev = (st.rev || 0) + 1;
-  if (baseUrl) st.boardUrl = baseUrl + '/board/' + encodeURIComponent(c.channel_id) + '.png?v=' + st.rev;
+  // Cache-buster must be globally unique, not a per-game counter, or Discord's
+  // image CDN serves a stale board from a previous game with the same ?v= value.
+  const bust = Date.now().toString(36) + st.rev;
+  if (baseUrl) st.boardUrl = baseUrl + '/board/' + encodeURIComponent(c.channel_id) + '.png?v=' + bust;
   await store.saveGame(c.channel_id, st);
   const embed = buildEmbed(st);
   let components;
@@ -221,6 +231,7 @@ async function finish(st, c, baseUrl, responseType) {
   return { type: responseType, data: { embeds: [embed], components } };
 }
 
+// Handle the "pick sign" button by returning sign buttons (needs game context).
 async function handlePick(interaction, baseUrl) {
   const c = ctx(interaction);
   const st = await store.getGame(c.channel_id);
@@ -265,6 +276,7 @@ app.post('/interactions', express.raw({ type: '*/*' }), async function (req, res
   if (interaction.type === 1) return res.status(200).json({ type: 1 });
   const baseUrl = 'https://' + req.get('host');
   try {
+    // route the "pick sign" button specially
     if (interaction.type === 3 && (interaction.data.custom_id || '').split('|')[1] === 'pick') {
       return res.status(200).json(await handlePick(interaction, baseUrl));
     }
