@@ -263,7 +263,42 @@ async function renderBoard(state) {
   drawButton(canvas, rightGridX + btnW + 12, btnY, btnW, 34, 'STAND');
   drawButton(canvas, rightGridX, btnY + 44, GRID_W, 34, 'FORFEIT GAME');
 
+  // ---- win / lose result banner (KOTOR-style overlay) ----
+  // In PvC the human is seat p1, so we use the requested "You" wording.
+  // In PvP the board image is shared by both players, so we name the winner.
+  const pvc = state.mode === 'pvc' || p2.isComputer;
+  let banner = null, win = false;
+  if (state.phase === 'gameOver') {
+    win = state.winner === 'p1';
+    if (pvc) banner = win ? 'You have defeated your opponent.' : 'You have been defeated.';
+    else banner = (state.winner === 'p1' ? p1name : p2name) + ' wins the match.';
+  } else if (state.setBanner) {
+    win = state.setBanner === 'p1';
+    if (pvc) banner = win ? 'You have won the set.' : 'Your opponent wins the set.';
+    else banner = (state.setBanner === 'p1' ? p1name : p2name) + ' wins the set.';
+  }
+  if (banner) drawResultBanner(canvas, banner, win);
+
   return canvas.getBufferAsync(Jimp.MIME_PNG);
+}
+
+// Full-width result bar across the middle of the table.
+function drawResultBanner(canvas, text, win) {
+  const barH = 92;
+  const y = Math.round((HEIGHT - barH) / 2);
+  const face = win ? 0x1f6d34ff : 0x8a1f22ff;      // green win / red loss
+  const edge = win ? 0x3fe06aff : 0xff5a5aff;
+  const shadow = 0x000000cc;
+  // drop shadow strip behind the bar
+  fillRect(canvas, 0, y - 6, WIDTH, barH + 12, shadow);
+  // main colored bar with beveled top/bottom edges
+  fillRect(canvas, 0, y, WIDTH, barH, face);
+  fillRect(canvas, 0, y, WIDTH, 3, edge);
+  fillRect(canvas, 0, y + barH - 3, WIDTH, 3, edge);
+  // centered gold headline text
+  const tw = Jimp.measureText(font32, text);
+  const th = Jimp.measureTextHeight(font32, text, tw);
+  printGold(canvas, font32, Math.round((WIDTH - tw) / 2), Math.round(y + (barH - th) / 2), text);
 }
 
 async function drawGrid(canvas, player, gx, gy, isTurn, grey) {
@@ -277,7 +312,7 @@ async function drawGrid(canvas, player, gx, gy, isTurn, grey) {
     const placed = player.placed[i];
     if (placed) {
       if (grey) {
-        // (unused now) blank grey card, no face/text.
+        // Opponent's played cards are hidden: draw a blank grey card, no face/text.
         greyCard(canvas, cx, cy, CARD_W, CARD_H, 10);
       } else {
         try { canvas.composite(await roundCard(placed.img, CARD_W, CARD_H), cx, cy); }
@@ -287,7 +322,7 @@ async function drawGrid(canvas, player, gx, gy, isTurn, grey) {
   }
 }
 
-// A featureless grey card face (rounded, subtly beveled) — used to hide the opponent's side deck.
+// A featureless grey card face (rounded, subtly beveled) — used to hide opponent cards.
 function greyCard(img, x, y, w, h, r) {
   fillRoundRect(img, x, y, w, h, r, 0x8a9098ff);
   // soft inner panel so it reads as a card, not a flat block
