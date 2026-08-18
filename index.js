@@ -41,9 +41,16 @@ function buildEmbed(st) {
     { name: seatName(st, 'p1') + ' - ' + p1.total + (p1.busted ? ' BUST' : (p1.stood ? ' STAND' : '')), value: 'Board: ' + boardStr(p1) + '\nSets: ' + p1.sets + '/' + E.WIN_SETS, inline: true },
     { name: seatName(st, 'p2') + ' - ' + p2.total + (p2.busted ? ' BUST' : (p2.stood ? ' STAND' : '')), value: 'Board: ' + boardStr(p2) + '\nSets: ' + p2.sets + '/' + E.WIN_SETS, inline: true },
   ];
-  let desc = st.phase === 'gameOver'
-    ? '**Match over - ' + seatName(st, st.winner) + ' wins!**'
-    : 'Round ' + st.round + ' - Turn: ' + seatName(st, st.turn);
+  let desc;
+  if (st.phase === 'gameOver') {
+    desc = '**Match over - ' + seatName(st, st.winner) + ' wins!**';
+  } else if (st.phase === 'setOver') {
+    desc = st.setBanner === 'tie'
+      ? '**Set ' + st.round + ' drawn.** Press Continue for the next set.'
+      : '**Set ' + st.round + ' to ' + seatName(st, st.setBanner) + '.** Press Continue for the next set.';
+  } else {
+    desc = 'Round ' + st.round + ' - Turn: ' + seatName(st, st.turn);
+  }
   if (st.bet > 0) desc += '\nBet: **' + st.bet + '** credits (pot **' + (st.bet * 2) + '**)';
   if (st.phase === 'gameOver' && st.payoutMsg) desc += '\n' + st.payoutMsg;
   const embed = { title: 'Pazaak', description: desc + '\n\n' + st.log.slice(-6).join('\n'), color: 5793266, fields };
@@ -55,6 +62,12 @@ function gameButtons(st, seat) {
     return [{ type: 1, components: [
       { type: 2, style: 1, label: 'New vs Computer', custom_id: 'pz|new|pvc' },
       { type: 2, style: 2, label: 'New PvP', custom_id: 'pz|new|pvp' },
+    ] }];
+  }
+  if (st.phase === 'setOver') {
+    return [{ type: 1, components: [
+      { type: 2, style: 3, label: 'Continue', custom_id: 'pz|continue' },
+      { type: 2, style: 4, label: 'Forfeit', custom_id: 'pz|forfeit' },
     ] }];
   }
   const rows = [];
@@ -256,6 +269,13 @@ async function handle(interaction, baseUrl) {
       const seat = seatOf(st, c.user_id);
       if (!seat) return ephemeral('You are not in this game.');
       const r = E.forfeit(st, seat);
+      if (!r.ok) return ephemeral(r.reason);
+      return finish(st, c, baseUrl, 7);
+    }
+    if (kind === 'continue') {
+      const seat = seatOf(st, c.user_id);
+      if (!seat) return ephemeral('You are not in this game.');
+      const r = E.continueSet(st);
       if (!r.ok) return ephemeral(r.reason);
       return finish(st, c, baseUrl, 7);
     }
