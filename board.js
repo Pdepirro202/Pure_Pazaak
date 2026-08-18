@@ -25,8 +25,9 @@ async function getCard(filename) {
 }
 function emptySlot() {
   const s = new Jimp(CARD_W, CARD_H, 0x00000033);
-  for (let x = 0; x < CARD_W; x++) { s.setPixelColor(0x2f6b4fff, x, 0); s.setPixelColor(0x2f6b4fff, x, CARD_H - 1); }
-  for (let y = 0; y < CARD_H; y++) { s.setPixelColor(0x2f6b4fff, 0, y); s.setPixelColor(0x2f6b4fff, CARD_W - 1, y); }
+  // border
+  for (let x = 0; x < CARD_W; x++) { s.setPixelColor(0x4a4f55ff, x, 0); s.setPixelColor(0x4a4f55ff, x, CARD_H - 1); }
+  for (let y = 0; y < CARD_H; y++) { s.setPixelColor(0x4a4f55ff, 0, y); s.setPixelColor(0x4a4f55ff, CARD_W - 1, y); }
   return s;
 }
 
@@ -37,13 +38,14 @@ async function renderBoard(state) {
   const rowH = LABEL_H + CARD_H + PAD;
   const handH = LABEL_H + CARD_H + PAD;
   const height = PAD + 2 * rowH + handH;
-  const canvas = new Jimp(width, height, 0x0b3d2eff);
+  const canvas = new Jimp(width, height, 0x82888eff);
   const slot = emptySlot();
 
   for (let r = 0; r < 2; r++) {
     const seat = seats[r];
     const p = state.players[seat];
     const y0 = PAD + r * rowH;
+    // turn highlight band
     if (state.phase === 'playing' && state.turn === seat) {
       const band = new Jimp(width - 8, rowH - 6, 0xf5c84233);
       canvas.composite(band, 4, y0 - 4);
@@ -64,6 +66,7 @@ async function renderBoard(state) {
     }
   }
 
+  // active player's hand face-up
   const hy = PAD + 2 * rowH;
   const active = state.players[state.turn] || state.players.p1;
   canvas.print(font, PAD, hy, (active.name || 'Player') + "'s hand:");
@@ -77,6 +80,7 @@ async function renderBoard(state) {
   return canvas.getBufferAsync(Jimp.MIME_PNG);
 }
 
+// duplicate of engine.cardToImg to avoid a circular require
 function cardImg(code) {
   if (code[0] === 'p') return 'plus_' + code.slice(1) + '.png';
   if (code[0] === 'm') return 'minus_' + code.slice(1) + '.png';
